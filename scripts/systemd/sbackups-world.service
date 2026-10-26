@@ -1,0 +1,13 @@
+[Unit]
+Description=Minecraft world backup to the NAS
+Wants=network-online.target
+After=network-online.target
+RequiresMountsFor=/mnt/nas-minecraft
+
+[Service]
+Type=oneshot
+User=minecraft
+Group=minecraft
+ExecStart=/usr/local/bin/sbackups-world-backup
+Nice=10
+IOSchedulingClass=idle

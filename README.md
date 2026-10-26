@@ -31,10 +31,34 @@ items needs the player online. The page updates live (server-sent events, no pol
     cp target/SBackups.jar ~/mc-server/plugins/
 
 ## World backups
-Deliberately not part of the plugin: use `scripts/world-backup.sh` from cron. It sends `save-off` /
-`save-all flush` through the server's `console.in`, archives the world plus `plugins/SBackups` as `.tar.zst`, always
-runs `save-on` afterwards and prunes old archives. Example crontab line (hourly):
+Deliberately not part of the plugin: `scripts/world-backup.sh` runs from a systemd timer, talks to the server over
+RCON (`save-off`, `save-all flush`, then `save-on` again, also on errors), archives the world plus `plugins/SBackups`
+to a local staging dir, and only then copies the `.tar.zst` to the share. Writes are therefore only paused while
+`tar` runs, not during the slow network copy. Retention: every archive for 2 days, then the 04:xx one of each day for
+14 days. It refuses to run when the share is not mounted, so a dropped NAS can never fill the local disk.
 
-    7 * * * * /home/sebi/Documents/Code/sbackups/scripts/world-backup.sh >> ~/mc-backups/cron.log 2>&1
+Setup on a Debian VM (server in `/opt/minecraft`, run as user `minecraft`):
 
-Copy `~/mc-backups` off the machine as well (rsync/rclone), a backup on the same disk is not a backup.
+1. `apt install cifs-utils zstd python3`
+2. `server.properties`: `enable-rcon=true`, a long random `rcon.password`, then restart the server. RCON listens on
+   all interfaces by default, so do not forward/open port 25575 in the firewall.
+3. Credentials, readable by root only (`/etc/sbackups/smb-credentials`, mode 600):
+
+       username=<nas user>
+       password=<password>
+
+4. `/etc/fstab` (share name is an example):
+
+       //10.5.1.10/minecraft-backup /mnt/nas-minecraft cifs credentials=/etc/sbackups/smb-credentials,uid=minecraft,gid=minecraft,file_mode=0640,dir_mode=0750,vers=3.0,_netdev,nofail,x-systemd.automount,x-systemd.idle-timeout=60 0 0
+
+   then `mkdir -p /mnt/nas-minecraft && systemctl daemon-reload && ls /mnt/nas-minecraft`.
+5. Install and enable:
+
+       install -m 755 scripts/world-backup.sh /usr/local/bin/sbackups-world-backup
+       install -m 644 scripts/systemd/sbackups-world.* /etc/systemd/system/
+       systemctl daemon-reload && systemctl enable --now sbackups-world.timer
+       systemctl start sbackups-world.service && journalctl -u sbackups-world -e   # first run by hand
+
+Defaults can be overridden in `/etc/sbackups/world-backup.conf` (`MC_DIR`, `DEST_MOUNT`, `STAGE_DIR`, `KEEP_ALL_DAYS`, ...,
+see the header of the script). Restore: `zstd -dc world-<stamp>.tar.zst | tar -x -C /opt/minecraft` with the server
+stopped. A backup on a NAS in the same house is still not off-site.
