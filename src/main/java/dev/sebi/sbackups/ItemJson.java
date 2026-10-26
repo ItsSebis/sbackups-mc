@@ -10,9 +10,15 @@ import net.kyori.adventure.text.serializer.plain.PlainTextComponentSerializer;
 import net.kyori.adventure.translation.GlobalTranslator;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.Damageable;
+import org.bukkit.inventory.meta.EnchantmentStorageMeta;
+import org.bukkit.inventory.meta.PotionMeta;
 
 /** Turns items into plain JSON for the web interface. Main thread only. */
 final class ItemJson {
+    private static final java.util.Set<String> HANDLED = java.util.Set.of("lore", "custom_name", "item_name",
+            "enchantments", "stored_enchantments", "damage", "max_damage", "max_stack_size", "potion_contents",
+            "attribute_modifiers", "rarity", "repair_cost", "tooltip_display", "item_model", "enchantable");
+
     private ItemJson() {}
 
     static Map<String, Object> sections(Snapshot s) {
@@ -48,10 +54,26 @@ final class ItemJson {
             i.getEnchantments().forEach((e, lvl) -> ench.put(e.getKey().getKey(), lvl));
             m.put("enchants", ench);
         }
-        if (i.hasItemMeta() && i.getItemMeta() instanceof Damageable d && d.getDamage() > 0) {
-            m.put("damage", d.getDamage());
-            m.put("maxDamage", i.getType().getMaxDurability());
+        if (i.hasItemMeta()) {
+            var meta = i.getItemMeta();
+            if (meta instanceof Damageable d && d.getDamage() > 0) {
+                m.put("damage", d.getDamage());
+                m.put("maxDamage", i.getType().getMaxDurability());
+            }
+            if (meta instanceof EnchantmentStorageMeta book && book.hasStoredEnchants()) {
+                Map<String, Integer> stored = new LinkedHashMap<>();
+                book.getStoredEnchants().forEach((e, lvl) -> stored.put(e.getKey().getKey(), lvl));
+                m.put("storedEnchants", stored);
+            }
+            if (meta instanceof PotionMeta pot && pot.hasBasePotionType()) {
+                m.put("potion", pot.getBasePotionType().getKey().getKey());
+            }
         }
+        // Everything else on the item (custom data, attributes, container contents, ...) is kept by the
+        // serialization; list the component names so the admin can see that there is more data.
+        List<String> extra = i.getDataTypes().stream().map(t -> t.getKey().getKey())
+                .filter(k -> !HANDLED.contains(k)).sorted().toList();
+        if (!extra.isEmpty()) m.put("components", extra);
         return m;
     }
 }

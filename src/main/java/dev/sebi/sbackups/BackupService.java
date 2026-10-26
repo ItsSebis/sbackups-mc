@@ -6,6 +6,7 @@ import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Supplier;
 import java.util.logging.Level;
 import org.bukkit.Location;
@@ -24,12 +25,18 @@ public final class BackupService {
     private final BackupStore store;
     private final ExecutorService io;
     private volatile Settings settings;
+    private final Events events = new Events();
+    private final AtomicLong captures = new AtomicLong(), totalNanos = new AtomicLong(), maxNanos = new AtomicLong();
 
     BackupService(JavaPlugin plugin, BackupStore store, ExecutorService io, Settings settings) {
         this.plugin = plugin;
         this.store = store;
         this.io = io;
         this.settings = settings;
+    }
+
+    void shutdownEvents() {
+        events.close();
     }
 
     void settings(Settings s) {
@@ -46,18 +53,32 @@ public final class BackupService {
 
     /** Captures on the main thread, writes asynchronously. Completes empty when a routine backup was a duplicate. */
     public CompletableFuture<Optional<Meta>> snapshotMain(Player p, Reason reason) {
+        long t0 = System.nanoTime();
         Snapshot snap = Snapshot.capture(p);
+        long took = System.nanoTime() - t0;
+        captures.incrementAndGet();
+        totalNanos.addAndGet(took);
+        maxNanos.accumulateAndGet(took, Math::max);
         Location l = p.getLocation();
         UUID uuid = p.getUniqueId();
         String world = l.getWorld().getName();
         return CompletableFuture.supplyAsync(() -> {
             try {
-                return store.save(uuid, reason, snap, world, l.getX(), l.getY(), l.getZ(), settings);
+                Optional<Meta> saved = store.save(uuid, reason, snap, world, l.getX(), l.getY(), l.getZ(), settings);
+                if (saved.isPresent()) events.publish("backup", uuid);
+                return saved;
             } catch (IOException e) {
                 plugin.getLogger().log(Level.SEVERE, "Could not back up " + p.getName(), e);
                 throw new java.io.UncheckedIOException(e);
             }
         }, io);
+    }
+
+    /** Main-thread cost of taking snapshots since startup, for checking the plugin's tick impact. */
+    public String timingSummary() {
+        long n = captures.get();
+        return n == 0 ? "no snapshots yet" : String.format("%d snapshots, main-thread time avg %.2f ms, max %.2f ms",
+                n, totalNanos.get() / 1e6 / n, maxNanos.get() / 1e6);
     }
 
     public List<Meta> list(UUID uuid) {
@@ -73,7 +94,23 @@ public final class BackupService {
     }
 
     public boolean delete(UUID uuid, String id) throws IOException {
-        return store.delete(uuid, id);
+        boolean removed = store.delete(uuid, id);
+        events.publish("backup", uuid);
+        return removed;
+    }
+
+    Events events() {
+        return events;
+    }
+
+    void clearPending(UUID uuid) {
+        store.clearPending(uuid);
+        events.publish("players", uuid);
+    }
+
+    /** Join/quit: told to browsers a couple of ticks later, when the online list already reflects the change. */
+    void playersChanged(UUID uuid) {
+        plugin.getServer().getScheduler().runTaskLater(plugin, () -> events.publish("players", uuid), 2L);
     }
 
     /** Restores the selected sections to an online player after taking a pre-restore backup. */
@@ -104,6 +141,7 @@ public final class BackupService {
     /** Stores a restore to be applied when the (offline) player next joins. */
     public void restoreLater(UUID uuid, String id, Sections sections) throws IOException {
         store.savePending(uuid, id, sections);
+        events.publish("players", uuid);
     }
 
     /** Applies and clears a pending restore, if any. Main thread. */
@@ -113,7 +151,7 @@ public final class BackupService {
         try {
             Snapshot snap = store.readPending(p.getUniqueId());
             restoreMain(p, snap, pending.get().sections()).whenComplete((v, err) -> {
-                if (err == null) store.clearPending(p.getUniqueId());
+                if (err == null) clearPending(p.getUniqueId());
             });
             plugin.getLogger().info("Applied pending restore " + pending.get().backupId() + " to " + p.getName());
             p.sendMessage("§aYour inventory was restored from a backup by an admin.");

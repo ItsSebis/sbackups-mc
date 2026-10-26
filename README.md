@@ -16,10 +16,15 @@ Files: `plugins/SBackups/data/<uuid>/<epochMillis>-<reason>.sbk` (gzip, item dat
 `http://127.0.0.1:8124` by default (`web.bind-address`, `web.port`). A random token is generated on first start and
 written to `web.token` in `config.yml`; log in with it. Keep it on localhost or behind a tunnel you trust: whoever has
 the token can change player inventories. Restore for offline players is applied on their next join; giving single
-items needs the player online.
+items needs the player online. The page updates live (server-sent events, no polling).
+
+## Item icons
+`src/main/resources/web/icons/` holds item textures extracted from the Minecraft 26.1 assets (via the
+[PrismarineJS/minecraft-assets](https://github.com/PrismarineJS/minecraft-assets) package). The textures are
+© Mojang Studios and only used to display items in the admin page.
 
 ## Commands (permission `sbackups.admin`, default op)
-`/sbackup now [player|*]`, `/sbackup list <player>`, `/sbackup restore <player> <id>`, `/sbackup reload`
+`/sbackup now [player|*]`, `/sbackup list <player>`, `/sbackup restore <player> <id>`, `/sbackup status` (main-thread cost of snapshots), `/sbackup reload`
 
 ## Build
     export JAVA_HOME=~/mc-tools/jdk-25*; ~/mc-tools/apache-maven-3.9.16/bin/mvn package

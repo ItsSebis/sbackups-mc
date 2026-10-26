@@ -30,7 +30,6 @@ final class WebServer {
 
     private final BackupService service;
     private final byte[] token;
-    private final String iconTemplate;
     private final HttpServer server;
     private final Gson gson = new GsonBuilder().disableHtmlEscaping().create();
     private final byte[] page;
@@ -53,7 +52,6 @@ final class WebServer {
     WebServer(BackupService service, Settings s) throws IOException {
         this.service = service;
         this.token = s.webToken().getBytes(StandardCharsets.UTF_8);
-        this.iconTemplate = s.iconUrlTemplate();
         try (InputStream in = WebServer.class.getResourceAsStream("/web/index.html")) {
             page = in.readAllBytes();
         }
@@ -79,6 +77,10 @@ final class WebServer {
         try {
             String path = ex.getRequestURI().getPath();
             String method = ex.getRequestMethod();
+            if (method.equals("GET") && path.startsWith("/icons/") && path.endsWith(".png")) {
+                icon(ex, path.substring(7, path.length() - 4));
+                return;
+            }
             if (!path.startsWith("/api/")) {
                 if (method.equals("GET") && (path.equals("/") || path.equals("/index.html"))) {
                     send(ex, 200, "text/html; charset=utf-8", page);
@@ -94,6 +96,10 @@ final class WebServer {
                 return;
             }
             if (!authed(ex)) throw new HttpError(401, "Not logged in");
+            if (path.equals("/api/events") && method.equals("GET")) {
+                stream(ex);
+                return;
+            }
             json(ex, 200, route(ex, method, seg));
         } catch (HttpError e) {
             json(ex, e.status, Map.of("error", e.getMessage()));
@@ -108,7 +114,7 @@ final class WebServer {
     private Object route(HttpExchange ex, String method, String[] seg) throws Exception {
         if (seg.length == 1 && seg[0].equals("config") && method.equals("GET")) {
             Settings s = service.settings();
-            return Map.of("iconUrlTemplate", iconTemplate, "restoreDefaults", s.restoreDefaults());
+            return Map.of("restoreDefaults", s.restoreDefaults());
         }
         if (seg.length == 1 && seg[0].equals("players") && method.equals("GET")) return players();
         if (seg.length < 3 || !seg[0].equals("players")) throw new HttpError(404, "Not found");
@@ -129,7 +135,7 @@ final class WebServer {
                     return meta.isPresent() ? meta.get() : Map.of("unchanged", true);
                 }
                 case "DELETE pending" -> {
-                    service.store().clearPending(uuid);
+                    service.clearPending(uuid);
                     return Map.of("ok", true);
                 }
                 default -> throw new HttpError(404, "Not found");
@@ -192,24 +198,63 @@ final class WebServer {
     }
 
     private List<Map<String, Object>> players() throws Exception {
-        return await(service.onMain(() -> {
-            List<UUID> all = new ArrayList<>(service.store().players());
+        // Only the cheap Bukkit lookups run on the main thread; reading backup headers from disk must not.
+        record Known(UUID uuid, String name, boolean online) {}
+        List<UUID> stored = service.store().players();
+        List<Known> known = await(service.onMain(() -> {
+            List<UUID> all = new ArrayList<>(stored);
             for (Player p : Bukkit.getOnlinePlayers()) if (!all.contains(p.getUniqueId())) all.add(p.getUniqueId());
-            List<Map<String, Object>> out = new ArrayList<>();
+            List<Known> out = new ArrayList<>();
             for (UUID u : all) {
-                List<Meta> backups = service.list(u);
                 String name = Bukkit.getOfflinePlayer(u).getName();
-                Map<String, Object> m = new LinkedHashMap<>();
-                m.put("uuid", u.toString());
-                m.put("name", name != null ? name : u.toString());
-                m.put("online", Bukkit.getPlayer(u) != null);
-                m.put("count", backups.size());
-                m.put("latest", backups.isEmpty() ? 0 : backups.get(0).time());
-                m.put("pending", service.store().hasPending(u));
-                out.add(m);
+                out.add(new Known(u, name != null ? name : u.toString(), Bukkit.getPlayer(u) != null));
             }
             return out;
         }));
+        List<Map<String, Object>> out = new ArrayList<>();
+        for (Known k : known) {
+            List<Meta> backups = service.list(k.uuid());
+            Map<String, Object> m = new LinkedHashMap<>();
+            m.put("uuid", k.uuid().toString());
+            m.put("name", k.name());
+            m.put("online", k.online());
+            m.put("count", backups.size());
+            m.put("latest", backups.isEmpty() ? 0 : backups.get(0).time());
+            m.put("pending", service.store().hasPending(k.uuid()));
+            out.add(m);
+        }
+        return out;
+    }
+
+    /** Keeps the exchange open; {@link Events} writes to it until the browser goes away. */
+    private void stream(HttpExchange ex) throws IOException {
+        if (service.events().full()) throw new HttpError(503, "Too many live connections");
+        ex.getResponseHeaders().set("Content-Type", "text/event-stream");
+        ex.getResponseHeaders().set("Cache-Control", "no-store");
+        ex.sendResponseHeaders(200, 0);
+        ex.getResponseBody().write(": connected\n\n".getBytes(StandardCharsets.UTF_8));
+        ex.getResponseBody().flush();
+        service.events().add(ex);
+    }
+
+    private void icon(HttpExchange ex, String id) throws IOException {
+        if (!id.matches("[a-z0-9_]{1,64}")) {
+            send(ex, 404, "text/plain", new byte[0]);
+            return;
+        }
+        try (InputStream in = WebServer.class.getResourceAsStream("/web/icons/" + id + ".png")) {
+            if (in == null) {
+                send(ex, 404, "text/plain", new byte[0]);
+                return;
+            }
+            byte[] png = in.readAllBytes();
+            ex.getResponseHeaders().set("Cache-Control", "public, max-age=86400");
+            ex.getResponseHeaders().set("Content-Type", "image/png");
+            ex.sendResponseHeaders(200, png.length);
+            try (var out = ex.getResponseBody()) {
+                out.write(png);
+            }
+        }
     }
 
     private static <T> T await(java.util.concurrent.CompletableFuture<T> f) throws Exception {

@@ -6,7 +6,7 @@ description: Backs up player inventories (incl. armor, offhand, ender chest) and
 commands:
   sbackup:
     description: Back up, list and restore player inventories.
-    usage: /sbackup <now [player|*]|list <player>|restore <player> <id>|reload>
+    usage: /sbackup <now [player|*]|list <player>|restore <player> <id>|status|reload>
     permission: sbackups.admin
 permissions:
   sbackups.admin:

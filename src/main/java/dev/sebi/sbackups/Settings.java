@@ -6,7 +6,7 @@ import org.bukkit.configuration.file.FileConfiguration;
 public record Settings(int periodicMinutes, boolean onJoin, boolean onQuit, boolean onDeath, boolean onWorldChange,
                        int maxRoutine, int routineMaxAgeDays, int maxDeath, int maxManual, long maxTotalBytes,
                        Sections restoreDefaults,
-                       boolean webEnabled, String webBind, int webPort, String webToken, String iconUrlTemplate) {
+                       boolean webEnabled, String webBind, int webPort, String webToken) {
 
     static Settings from(FileConfiguration c) {
         return new Settings(
@@ -29,8 +29,7 @@ public record Settings(int periodicMinutes, boolean onJoin, boolean onQuit, bool
                 c.getBoolean("web.enabled", true),
                 c.getString("web.bind-address", "127.0.0.1"),
                 c.getInt("web.port", 8124),
-                c.getString("web.token", ""),
-                c.getString("web.icon-url-template", ""));
+                c.getString("web.token", ""));
     }
 
     int limit(Reason.Pool pool) {

@@ -33,6 +33,3 @@ web:
   port: 8124
   # Generated automatically on first start. Needed to log in to the web interface.
   token: ""
-  # Optional item icons: URL with {id} replaced by the item key (e.g. diamond_sword).
-  # Empty = no external requests, items are shown as coloured tiles.
-  icon-url-template: ""

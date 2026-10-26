@@ -2,7 +2,10 @@ package dev.sebi.sbackups;
 
 import java.io.IOException;
 import java.security.SecureRandom;
+import java.util.ArrayDeque;
+import java.util.Deque;
 import java.util.HexFormat;
+import java.util.UUID;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
@@ -14,7 +17,10 @@ public final class SBackupsPlugin extends JavaPlugin {
     private ExecutorService io;
     private BackupService service;
     private WebServer web;
+    private static final int PER_TICK = 2;
+
     private BukkitTask periodic;
+    private BukkitTask round;
 
     @Override
     public void onEnable() {
@@ -39,9 +45,7 @@ public final class SBackupsPlugin extends JavaPlugin {
         Settings s = service.settings();
         if (s.periodicMinutes() > 0) {
             long ticks = s.periodicMinutes() * 60L * 20L;
-            periodic = getServer().getScheduler().runTaskTimer(this, () -> {
-                for (Player p : getServer().getOnlinePlayers()) service.snapshotMain(p, Reason.PERIODIC);
-            }, ticks, ticks);
+            periodic = getServer().getScheduler().runTaskTimer(this, this::startRound, ticks, ticks);
         }
         if (s.webEnabled()) {
             try {
@@ -53,9 +57,26 @@ public final class SBackupsPlugin extends JavaPlugin {
         }
     }
 
+    /** Spreads a periodic round over several ticks (PER_TICK players each) instead of one big tick. */
+    private void startRound() {
+        if (round != null) round.cancel();
+        Deque<UUID> queue = new ArrayDeque<>();
+        for (Player p : getServer().getOnlinePlayers()) queue.add(p.getUniqueId());
+        BukkitTask[] self = new BukkitTask[1];
+        self[0] = round = getServer().getScheduler().runTaskTimer(this, () -> {
+            for (int i = 0; i < PER_TICK && !queue.isEmpty(); i++) {
+                Player p = getServer().getPlayer(queue.poll());
+                if (p != null) service.snapshotMain(p, Reason.PERIODIC);
+            }
+            if (queue.isEmpty()) self[0].cancel();
+        }, 1L, 1L);
+    }
+
     private void stop() {
         if (periodic != null) periodic.cancel();
+        if (round != null) round.cancel();
         periodic = null;
+        round = null;
         if (web != null) web.stop();
         web = null;
     }
@@ -97,6 +118,11 @@ public final class SBackupsPlugin extends JavaPlugin {
     @Override
     public void onDisable() {
         stop();
+        // Paper disables plugins before it kicks the players, so the quit event never reaches us on shutdown.
+        if (service.settings().onQuit()) {
+            for (Player p : getServer().getOnlinePlayers()) service.snapshotMain(p, Reason.QUIT);
+        }
+        service.shutdownEvents();
         io.shutdown(); // flushes queued backups, e.g. the quit backups taken while the server stops
         try {
             if (!io.awaitTermination(15, TimeUnit.SECONDS)) getLogger().warning("Backups still writing at shutdown");

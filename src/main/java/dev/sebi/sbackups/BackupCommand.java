@@ -33,6 +33,7 @@ final class BackupCommand implements CommandExecutor, TabCompleter {
             case "now" -> now(sender, args);
             case "list" -> list(sender, args);
             case "restore" -> restore(sender, args);
+            case "status" -> sender.sendMessage("§e" + service.timingSummary());
             case "reload" -> {
                 plugin.reload();
                 sender.sendMessage("§aSBackups config reloaded.");
@@ -115,7 +116,7 @@ final class BackupCommand implements CommandExecutor, TabCompleter {
 
     @Override
     public List<String> onTabComplete(CommandSender sender, Command cmd, String label, String[] args) {
-        if (args.length == 1) return List.of("now", "list", "restore", "reload").stream()
+        if (args.length == 1) return List.of("now", "list", "restore", "status", "reload").stream()
                 .filter(s -> s.startsWith(args[0].toLowerCase())).toList();
         if (args.length == 2 && !args[0].equalsIgnoreCase("reload")) {
             return Bukkit.getOnlinePlayers().stream().map(Player::getName)

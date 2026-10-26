@@ -19,6 +19,7 @@ final class BackupListener implements Listener {
     @EventHandler(priority = EventPriority.MONITOR)
     void onJoin(PlayerJoinEvent e) {
         Player p = e.getPlayer();
+        service.playersChanged(p.getUniqueId());
         if (service.store().hasPending(p.getUniqueId())) {
             service.applyPendingMain(p);
         } else if (service.settings().onJoin()) {
@@ -28,6 +29,7 @@ final class BackupListener implements Listener {
 
     @EventHandler(priority = EventPriority.MONITOR)
     void onQuit(PlayerQuitEvent e) {
+        service.playersChanged(e.getPlayer().getUniqueId());
         if (service.settings().onQuit()) service.snapshotMain(e.getPlayer(), Reason.QUIT);
     }
 
