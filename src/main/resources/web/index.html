@@ -1,0 +1,335 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SBackups</title>
+<style>
+  :root {
+    --bg: #14161a; --panel: #1c1f25; --panel2: #232730; --line: #2f3440; --text: #e6e8ec; --dim: #8b93a1;
+    --accent: #5aa9ff; --ok: #4cc38a; --warn: #f2b84b; --bad: #ef6a6a; --slot: #2a2e38;
+  }
+  @media (prefers-color-scheme: light) {
+    :root { --bg: #f3f4f7; --panel: #fff; --panel2: #f0f2f6; --line: #d9dde5; --text: #1d2128; --dim: #667085;
+            --accent: #1f6fd1; --ok: #1a8f5c; --warn: #b7791f; --bad: #c53030; --slot: #e6e9f0; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.4 system-ui, sans-serif; }
+  button { font: inherit; color: var(--text); background: var(--panel2); border: 1px solid var(--line);
+           border-radius: 6px; padding: 6px 12px; cursor: pointer; }
+  button:hover { border-color: var(--accent); }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button.danger:hover { border-color: var(--bad); color: var(--bad); }
+  button:disabled { opacity: .5; cursor: default; }
+  input[type=text], input[type=password] { font: inherit; color: var(--text); background: var(--panel2);
+           border: 1px solid var(--line); border-radius: 6px; padding: 7px 10px; width: 100%; }
+  #login { max-width: 340px; margin: 18vh auto; padding: 0 16px; display: grid; gap: 10px; }
+  #app { display: none; height: 100vh; grid-template-columns: 250px 270px 1fr; }
+  #app.on { display: grid; }
+  .col { border-right: 1px solid var(--line); overflow: auto; background: var(--panel); min-height: 0; }
+  .col h2 { margin: 0; padding: 14px 14px 8px; font-size: 12px; letter-spacing: .06em; text-transform: uppercase; color: var(--dim); }
+  .search { padding: 0 12px 10px; }
+  .row { padding: 8px 14px; border-top: 1px solid var(--line); cursor: pointer; display: grid; gap: 2px; }
+  .row:hover { background: var(--panel2); }
+  .row.sel { background: var(--panel2); box-shadow: inset 3px 0 var(--accent); }
+  .row .t { display: flex; justify-content: space-between; gap: 8px; }
+  .sub { color: var(--dim); font-size: 12px; }
+  .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--dim); margin-right: 6px; }
+  .dot.on { background: var(--ok); }
+  .tag { font-size: 11px; padding: 1px 7px; border-radius: 10px; background: var(--slot); color: var(--dim); }
+  .tag.death { background: #5a2323; color: #ffb4b4; }
+  .tag.manual, .tag.pre-restore { background: #24405f; color: #a9d0ff; }
+  #detail { overflow: auto; padding: 18px 22px; min-height: 0; }
+  .bar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 14px; }
+  .bar h1 { font-size: 18px; margin: 0 auto 0 0; }
+  .banner { background: var(--panel2); border: 1px solid var(--warn); color: var(--warn); border-radius: 6px; padding: 8px 12px; margin-bottom: 12px; }
+  .tabs { display: flex; gap: 6px; margin-bottom: 12px; }
+  .tabs button.on { border-color: var(--accent); color: var(--accent); }
+  .inv { display: flex; gap: 18px; flex-wrap: wrap; align-items: flex-start; }
+  .grid { display: grid; grid-template-columns: repeat(9, 46px); gap: 4px; }
+  .gap { height: 10px; grid-column: 1 / -1; }
+  .col1 { display: grid; gap: 4px; grid-template-columns: 46px; }
+  .label { color: var(--dim); font-size: 11px; text-transform: uppercase; letter-spacing: .06em; margin: 0 0 6px; }
+  .slot { width: 46px; height: 46px; background: var(--slot); border: 1px solid var(--line); border-radius: 5px;
+          position: relative; display: grid; place-items: center; overflow: hidden; }
+  .slot.has { cursor: pointer; }
+  .slot.has:hover { border-color: var(--accent); }
+  .slot.diff { outline: 2px solid var(--warn); outline-offset: -2px; }
+  .slot .abbr { font-size: 11px; font-weight: 700; color: #fff; text-shadow: 0 1px 2px #000a; padding: 2px 4px;
+                border-radius: 4px; max-width: 40px; overflow: hidden; }
+  .slot img { width: 32px; height: 32px; image-rendering: pixelated; }
+  .slot .n { position: absolute; right: 3px; bottom: 1px; font-size: 12px; font-weight: 700; color: #fff; text-shadow: 0 1px 2px #000; }
+  .slot .ench::after { content: ""; position: absolute; inset: 0; box-shadow: inset 0 0 8px 1px #a46bff88; border-radius: 5px; }
+  .slot .dur { position: absolute; left: 4px; right: 4px; bottom: 3px; height: 3px; background: #0006; border-radius: 2px; }
+  .slot .dur i { display: block; height: 100%; border-radius: 2px; }
+  .meta { color: var(--dim); font-size: 12px; margin: 14px 0 0; }
+  #tip { position: fixed; z-index: 10; pointer-events: none; background: #0b0c10f2; color: #eee; border: 1px solid #5b3d99;
+         border-radius: 6px; padding: 7px 10px; font-size: 12px; max-width: 300px; display: none; }
+  #tip b { display: block; font-size: 13px; }
+  #tip .l { color: #b4b9c4; } #tip .e { color: #b894ff; }
+  dialog { background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: 10px; padding: 18px 20px; max-width: 380px; }
+  dialog::backdrop { background: #0008; }
+  dialog label { display: flex; gap: 8px; align-items: center; padding: 4px 0; }
+  dialog .actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 14px; }
+  #toast { position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%); background: var(--panel2); border: 1px solid var(--line);
+           padding: 9px 16px; border-radius: 8px; display: none; z-index: 20; }
+  #toast.bad { border-color: var(--bad); } #toast.ok { border-color: var(--ok); }
+  .empty { color: var(--dim); padding: 30px 0; }
+  @media (max-width: 900px) { #app.on { grid-template-columns: 1fr; height: auto; } .col { max-height: 40vh; } }
+</style>
+</head>
+<body>
+<form id="login">
+  <h1>SBackups</h1>
+  <div class="sub">Enter the web token from <code>plugins/SBackups/config.yml</code> (<code>web.token</code>).</div>
+  <input type="password" id="tok" placeholder="Token" autocomplete="current-password" autofocus>
+  <button class="primary">Log in</button>
+  <div id="loginErr" class="sub" style="color:var(--bad)"></div>
+</form>
+
+<div id="app">
+  <div class="col">
+    <h2>Players</h2>
+    <div class="search"><input type="text" id="q" placeholder="Search players"></div>
+    <div id="players"></div>
+  </div>
+  <div class="col">
+    <h2>Backups</h2>
+    <div id="backups"><div class="empty" style="padding:14px">Select a player.</div></div>
+  </div>
+  <div id="detail"><div class="empty">Select a backup to see its inventory.</div></div>
+</div>
+
+<dialog id="dlg">
+  <h3 style="margin-top:0">Restore backup</h3>
+  <div class="sub" id="dlgInfo"></div>
+  <div style="margin-top:10px">
+    <label><input type="checkbox" data-s="main"> Inventory (hotbar + storage)</label>
+    <label><input type="checkbox" data-s="armor"> Armor</label>
+    <label><input type="checkbox" data-s="offhand"> Offhand</label>
+    <label><input type="checkbox" data-s="enderChest"> Ender chest</label>
+    <label><input type="checkbox" data-s="xp"> Experience</label>
+  </div>
+  <div class="sub" style="margin-top:8px">The current state is saved as a “pre-restore” backup first, so this can be undone.
+    Offline players get it applied when they next join.</div>
+  <div class="actions"><button id="dlgCancel" type="button">Cancel</button><button id="dlgOk" class="primary" type="button">Restore</button></div>
+</dialog>
+<div id="tip"></div>
+<div id="toast"></div>
+
+<script>
+const $ = s => document.querySelector(s);
+const ARMOR_LABELS = ['Boots', 'Leggings', 'Chestplate', 'Helmet'];
+let cfg = {}, players = [], player = null, backups = [], backup = null, data = null, current = null;
+let tab = 'inv', compare = false;
+
+function h(tag, attrs, ...kids) {
+  const el = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs || {})) {
+    if (v == null) continue;
+    if (k === 'class') el.className = v; else if (k.startsWith('on')) el.addEventListener(k.slice(2), v);
+    else el.setAttribute(k, v);
+  }
+  for (const k of kids.flat()) if (k != null) el.append(k);
+  return el;
+}
+
+async function api(path, method = 'GET', body) {
+  const r = await fetch('/api/' + path, { method, headers: body ? { 'Content-Type': 'application/json' } : {},
+    body: body ? JSON.stringify(body) : undefined });
+  const j = await r.json().catch(() => ({}));
+  if (r.status === 401 && path !== 'login') { showLogin(); throw new Error('Not logged in'); }
+  if (!r.ok) throw new Error(j.error || r.statusText);
+  return j;
+}
+
+let toastTimer;
+function toast(msg, kind = 'ok') {
+  const t = $('#toast'); t.textContent = msg; t.className = kind; t.style.display = 'block';
+  clearTimeout(toastTimer); toastTimer = setTimeout(() => t.style.display = 'none', 3500);
+}
+const fail = e => toast(e.message, 'bad');
+
+function showLogin() { $('#app').classList.remove('on'); $('#login').style.display = 'grid'; }
+$('#login').addEventListener('submit', async e => {
+  e.preventDefault();
+  try { await api('login', 'POST', { token: $('#tok').value.trim() }); start(); }
+  catch (err) { $('#loginErr').textContent = err.message; }
+});
+
+async function start() {
+  try { cfg = await api('config'); } catch { return showLogin(); }
+  $('#login').style.display = 'none'; $('#app').classList.add('on');
+  await loadPlayers();
+}
+
+const when = t => new Date(t).toLocaleString();
+async function loadPlayers() {
+  players = await api('players');
+  players.sort((a, b) => b.online - a.online || b.latest - a.latest);
+  renderPlayers();
+}
+function renderPlayers() {
+  const q = $('#q').value.toLowerCase();
+  $('#players').replaceChildren(...players.filter(p => p.name.toLowerCase().includes(q)).map(p =>
+    h('div', { class: 'row' + (player && player.uuid === p.uuid ? ' sel' : ''), onclick: () => pickPlayer(p) },
+      h('div', { class: 't' }, h('span', {}, h('span', { class: 'dot' + (p.online ? ' on' : '') }), p.name),
+        h('span', { class: 'sub' }, p.count + '')),
+      h('div', { class: 'sub' }, p.latest ? when(p.latest) : 'no backups' + (p.pending ? ' · restore pending' : '')))));
+}
+$('#q').addEventListener('input', renderPlayers);
+
+async function pickPlayer(p) {
+  player = p; backup = data = current = null; renderPlayers();
+  $('#detail').replaceChildren(h('div', { class: 'empty' }, 'Select a backup to see its inventory.'));
+  await loadBackups();
+}
+async function loadBackups() {
+  backups = await api(`players/${player.uuid}/backups`);
+  const box = $('#backups');
+  const manual = h('div', { class: 'search', style: 'padding-top:4px' },
+    h('button', { disabled: !player.online ? '' : null, onclick: manualBackup }, 'Back up now'));
+  if (!player.online) manual.firstChild.title = 'Player is offline';
+  box.replaceChildren(manual, ...(backups.length ? backups.map(b =>
+    h('div', { class: 'row' + (backup && backup.id === b.id ? ' sel' : ''), onclick: () => pickBackup(b) },
+      h('div', { class: 't' }, h('span', {}, when(b.time)), h('span', { class: 'tag ' + b.reason }, b.reason)),
+      h('div', { class: 'sub' }, `${b.itemCount} items · ${b.world} ${Math.round(b.x)}, ${Math.round(b.y)}, ${Math.round(b.z)}`)))
+    : [h('div', { class: 'empty', style: 'padding:14px' }, 'No backups yet.')]));
+}
+async function manualBackup() {
+  try { const r = await api(`players/${player.uuid}/backup`, 'POST', {}); toast(r.unchanged ? 'Nothing changed' : 'Backup created');
+        await loadBackups(); await loadPlayers(); } catch (e) { fail(e); }
+}
+
+async function pickBackup(b) {
+  backup = b; tab = 'inv'; compare = false; current = null;
+  try { data = await api(`players/${player.uuid}/backups/${b.id}`); } catch (e) { return fail(e); }
+  await loadBackups(); renderDetail();
+}
+async function toggleCompare(on) {
+  compare = on;
+  if (on) { try { current = await api(`players/${player.uuid}/current`); } catch (e) { compare = false; fail(e); } }
+  renderDetail();
+}
+
+// --- inventory rendering ---
+const sig = it => it ? JSON.stringify([it.type, it.amount, it.name, it.enchants, it.lore, it.damage]) : '';
+function color(type) {
+  let x = 0; for (const c of type) x = (x * 31 + c.charCodeAt(0)) >>> 0;
+  return `hsl(${x % 360} 40% 38%)`;
+}
+function abbr(type) {
+  const w = type.split('_'); return w.length > 1 ? w.map(s => s[0]).join('').slice(0, 3).toUpperCase() : type.slice(0, 3);
+}
+const pretty = s => s.split('_').map(w => w[0].toUpperCase() + w.slice(1)).join(' ');
+
+function slot(it, ref, onGive) {
+  const el = h('div', { class: 'slot' + (it ? ' has' : '') });
+  if (ref !== undefined && sig(it) !== sig(ref)) el.classList.add('diff');
+  if (!it) return el;
+  if (cfg.iconUrlTemplate) {
+    const img = h('img', { src: cfg.iconUrlTemplate.replace('{id}', it.type), alt: '' });
+    img.onerror = () => { img.replaceWith(h('span', { class: 'abbr', style: `background:${color(it.type)}` }, abbr(it.type))); };
+    el.append(img);
+  } else el.append(h('span', { class: 'abbr', style: `background:${color(it.type)}` }, abbr(it.type)));
+  if (it.amount > 1) el.append(h('span', { class: 'n' }, it.amount));
+  if (it.enchants) el.classList.add('ench');
+  if (it.damage) {
+    const f = 1 - it.damage / it.maxDamage;
+    el.append(h('div', { class: 'dur' }, h('i', { style: `width:${f * 100}%;background:hsl(${f * 120} 70% 45%)` })));
+  }
+  el.addEventListener('mousemove', e => showTip(e, it));
+  el.addEventListener('mouseleave', () => $('#tip').style.display = 'none');
+  el.addEventListener('click', () => onGive(it));
+  return el;
+}
+function showTip(e, it) {
+  const t = $('#tip');
+  t.replaceChildren(h('b', {}, it.name || pretty(it.type)),
+    h('div', { class: 'l' }, pretty(it.type) + (it.amount > 1 ? ' × ' + it.amount : '')),
+    ...Object.entries(it.enchants || {}).map(([k, v]) => h('div', { class: 'e' }, `${pretty(k)} ${v}`)),
+    ...(it.lore || []).map(l => h('div', { class: 'l' }, l)),
+    it.damage ? h('div', { class: 'l' }, `Durability ${it.maxDamage - it.damage}/${it.maxDamage}`) : null);
+  t.style.display = 'block';
+  t.style.left = Math.min(e.clientX + 14, innerWidth - 320) + 'px'; t.style.top = (e.clientY + 14) + 'px';
+}
+
+function giveFn(section, index) {
+  return async () => {
+    if (!player.online) return toast('Player must be online to receive single items', 'bad');
+    if (!confirm('Give this item to ' + player.name + '?')) return;
+    try { await api(`players/${player.uuid}/backups/${backup.id}/give`, 'POST', { section, index }); toast('Item given'); }
+    catch (e) { fail(e); }
+  };
+}
+
+function renderDetail() {
+  const d = data, c = compare && current ? current : null;
+  const mk = (section, arr, i, ref) => slot(arr[i], c ? ref : undefined, giveFn(section, i));
+  const mainGrid = h('div', { class: 'grid' });
+  for (const i of [...Array(27).keys()].map(k => k + 9)) mainGrid.append(mk('main', d.main, i, c && c.main[i]));
+  mainGrid.append(h('div', { class: 'gap' }));
+  for (let i = 0; i < 9; i++) mainGrid.append(mk('main', d.main, i, c && c.main[i]));
+
+  const armor = h('div', { class: 'col1' });
+  for (const i of [3, 2, 1, 0]) armor.append(mk('armor', d.armor, i, c && c.armor[i]));
+  armor.childNodes.forEach((n, k) => n.title = ARMOR_LABELS[3 - k]);
+
+  const ender = h('div', { class: 'grid' });
+  for (let i = 0; i < 27; i++) ender.append(mk('ender', d.ender, i, c && c.ender[i]));
+
+  const m = d.meta;
+  $('#detail').replaceChildren(
+    h('div', { class: 'bar' }, h('h1', {}, `${player.name} · ${when(m.time)}`),
+      h('label', { class: 'sub', style: 'display:flex;gap:6px;align-items:center' },
+        h('input', { type: 'checkbox', ...(compare ? { checked: '' } : {}), ...(player.online ? {} : { disabled: '' }),
+          onchange: e => toggleCompare(e.target.checked) }), 'Compare with current'),
+      h('button', { class: 'primary', onclick: openRestore }, 'Restore…'),
+      h('button', { class: 'danger', onclick: delBackup }, 'Delete')),
+    player.pending ? h('div', { class: 'banner' }, 'A restore is already queued for this player and will be applied when they join. ',
+      h('button', { onclick: cancelPending }, 'Cancel it')) : null,
+    h('div', { class: 'tabs' },
+      h('button', { class: tab === 'inv' ? 'on' : '', onclick: () => { tab = 'inv'; renderDetail(); } }, 'Inventory'),
+      h('button', { class: tab === 'ender' ? 'on' : '', onclick: () => { tab = 'ender'; renderDetail(); } }, 'Ender chest')),
+    tab === 'inv'
+      ? h('div', { class: 'inv' },
+          h('div', {}, h('p', { class: 'label' }, 'Armor'), armor),
+          h('div', {}, h('p', { class: 'label' }, 'Offhand'), h('div', { class: 'col1' }, mk('offhand', d.offhand, 0, c && c.offhand[0]))),
+          h('div', {}, h('p', { class: 'label' }, 'Inventory'), mainGrid))
+      : h('div', {}, h('p', { class: 'label' }, 'Ender chest'), ender),
+    h('p', { class: 'meta' }, `XP level ${d.xpLevel} · ${m.itemCount} items · ${m.world} (${Math.round(m.x)}, ${Math.round(m.y)}, ${Math.round(m.z)}) · ${m.id}` +
+      (c ? ' · amber outline = differs from the player’s current inventory' : '')));
+}
+
+function openRestore() {
+  const dflt = cfg.restoreDefaults || {};
+  document.querySelectorAll('#dlg input[data-s]').forEach(i => i.checked = !!dflt[i.dataset.s]);
+  $('#dlgInfo').textContent = `${player.name} · ${when(backup.time)} (${backup.reason})` + (player.online ? '' : ' — offline, will be queued');
+  $('#dlg').showModal();
+}
+$('#dlgCancel').onclick = () => $('#dlg').close();
+$('#dlgOk').onclick = async () => {
+  const sections = {};
+  document.querySelectorAll('#dlg input[data-s]').forEach(i => sections[i.dataset.s] = i.checked);
+  $('#dlg').close();
+  try {
+    const r = await api(`players/${player.uuid}/backups/${backup.id}/restore`, 'POST', { sections });
+    toast(r.queued ? 'Queued until the player joins' : 'Restored');
+    await loadPlayers(); player = players.find(p => p.uuid === player.uuid) || player; await loadBackups();
+    if (compare) await toggleCompare(true); else renderDetail();
+  } catch (e) { fail(e); }
+};
+async function delBackup() {
+  if (!confirm('Delete this backup permanently?')) return;
+  try { await api(`players/${player.uuid}/backups/${backup.id}`, 'DELETE'); backup = data = null; await loadBackups(); await loadPlayers();
+        $('#detail').replaceChildren(h('div', { class: 'empty' }, 'Backup deleted.')); } catch (e) { fail(e); }
+}
+async function cancelPending() {
+  try { await api(`players/${player.uuid}/pending`, 'DELETE'); await loadPlayers();
+        player = players.find(p => p.uuid === player.uuid) || player; renderDetail(); } catch (e) { fail(e); }
+}
+
+start();
+</script>
+</body>
+</html>

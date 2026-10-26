@@ -1,0 +1,38 @@
+# Which events trigger a backup. Routine backups (everything except death/manual) are skipped
+# when the inventory is unchanged since the player's latest backup.
+triggers:
+  periodic-minutes: 15   # 0 disables the periodic backup of online players
+  join: true
+  quit: true
+  death: true
+  world-change: true
+
+# Backups are kept in three separate pools per player, so frequent routine backups never push out
+# the important ones. Older backups of a pool are deleted automatically.
+retention:
+  max-routine: 40            # periodic, join, quit, world-change
+  routine-max-age-days: 14   # 0 = no age limit
+  max-death: 20
+  max-manual: 20             # manual and pre-restore backups
+  max-total-size-mb: 2048    # safety cap for all players together; oldest routine backups go first. 0 = off
+
+# Default selection in the restore dialog / for /sbackup restore.
+restore:
+  include-main: true
+  include-armor: true
+  include-offhand: true
+  include-ender-chest: false
+  include-xp: false
+
+# Admin web interface.
+web:
+  enabled: true
+  # Keep this on 127.0.0.1 unless you put it behind a trusted tunnel/reverse proxy:
+  # whoever has the token can change players' inventories.
+  bind-address: 127.0.0.1
+  port: 8124
+  # Generated automatically on first start. Needed to log in to the web interface.
+  token: ""
+  # Optional item icons: URL with {id} replaced by the item key (e.g. diamond_sword).
+  # Empty = no external requests, items are shown as coloured tiles.
+  icon-url-template: ""
