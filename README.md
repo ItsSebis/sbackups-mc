@@ -37,22 +37,40 @@ to a local staging dir, and only then copies the `.tar.zst` to the share. Writes
 `tar` runs, not during the slow network copy. Retention: every archive for 2 days, then the 04:xx one of each day for
 14 days. It refuses to run when the share is not mounted, so a dropped NAS can never fill the local disk.
 
-Setup on a Debian VM (server in `/opt/minecraft`, run as user `minecraft`):
+Setup (server in `/opt/minecraft`, run as user `minecraft`, NAS share via SMB):
 
-1. `apt install cifs-utils zstd python3`
+1. `apt install zstd python3` (and `cifs-utils` wherever the share is mounted, see 4).
 2. `server.properties`: `enable-rcon=true`, a long random `rcon.password`, then restart the server. RCON listens on
    all interfaces by default, so do not forward/open port 25575 in the firewall.
-3. Credentials, readable by root only (`/etc/sbackups/smb-credentials`, mode 600):
+3. Credentials for the share, readable by root only (`/etc/sbackups/smb-credentials`, mode 600, on the machine that
+   mounts it):
 
        username=<nas user>
        password=<password>
 
-4. `/etc/fstab` (share name is an example):
+4. Mount the share at `/mnt/nas-minecraft`, then `touch /mnt/nas-minecraft/.sbackups-target` once (the script
+   refuses to run without this marker, so an unmounted share can never fill the local disk).
+   - **Normal VM / host:** `/etc/fstab`
 
-       //10.5.1.10/minecraft-backup /mnt/nas-minecraft cifs credentials=/etc/sbackups/smb-credentials,uid=minecraft,gid=minecraft,file_mode=0640,dir_mode=0750,vers=3.0,_netdev,nofail,x-systemd.automount,x-systemd.idle-timeout=60 0 0
+         //10.5.1.10/<share> /mnt/nas-minecraft cifs credentials=/etc/sbackups/smb-credentials,uid=minecraft,gid=minecraft,file_mode=0640,dir_mode=0750,vers=3.0,_netdev,nofail 0 0
 
-   then `mkdir -p /mnt/nas-minecraft && systemctl daemon-reload && ls /mnt/nas-minecraft`.
-5. Install and enable:
+   - **Proxmox LXC container:** containers cannot mount CIFS themselves (`mount error(1): Operation not permitted`).
+     Mount on the **Proxmox host** and bind-mount into the container. On the host, `apt install cifs-utils`, then
+     `/etc/fstab`:
+
+         //10.5.1.10/<share> /mnt/nas-minecraft cifs credentials=/etc/sbackups/smb-credentials,uid=101000,gid=101000,noperm,file_mode=0660,dir_mode=0770,vers=3.0,_netdev,nofail 0 0
+
+     `noperm` makes the host skip local permission checks (the NAS still enforces the login), which avoids uid
+     mapping trouble between host and container. `101000` = 100000 + the uid of `minecraft` inside an unprivileged container (`id minecraft`, usually 1000); for a
+     privileged container use the plain uid. Then `mkdir -p /mnt/nas-minecraft && mount /mnt/nas-minecraft`,
+     create the marker, and add the mount point to the container (`<CTID>` = container id), then restart it:
+
+         pct set <CTID> -mp0 /mnt/nas-minecraft,mp=/mnt/nas-minecraft
+         pct reboot <CTID>
+
+     Make sure the share is mounted on the host before the container starts (otherwise the marker check stops the
+     backup, which is the intended failure mode).
+5. Inside the container, install and enable:
 
        install -m 755 scripts/world-backup.sh /usr/local/bin/sbackups-world-backup
        install -m 644 scripts/systemd/sbackups-world.* /etc/systemd/system/

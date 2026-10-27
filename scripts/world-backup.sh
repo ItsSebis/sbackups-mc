@@ -10,8 +10,10 @@
 #   LEVEL         world folder                           (default: level-name from server.properties, else world)
 #   DEST_MOUNT    mount point of the share               (default /mnt/nas-minecraft)
 #   DEST          archive directory                      (default $DEST_MOUNT/world)
-#   REQUIRE_MOUNT 1 = abort unless DEST_MOUNT is a mounted filesystem (so a dropped share never fills the local
-#                 disk)                                  (default 1)
+#   REQUIRE_MOUNT 1 = abort unless DEST_MOUNT is a mount point AND contains the marker file below, so a missing
+#                 or dropped share never makes backups land on the local disk   (default 1)
+#   MARKER_FILE   file that exists on the NAS share only   (default $DEST_MOUNT/.sbackups-target; create it once
+#                 with `touch` while the share is mounted)
 #   STAGE_DIR     local scratch space for one archive    (default /var/tmp)
 #   RCON_HOST / RCON_PORT / RCON_PASSWORD   default 127.0.0.1 / rcon.port / rcon.password from server.properties
 #   KEEP_ALL_DAYS keep every archive this long           (default 2)
@@ -30,6 +32,7 @@ LEVEL="${LEVEL:-$(prop level-name)}"; LEVEL="${LEVEL:-world}"
 DEST_MOUNT="${DEST_MOUNT:-/mnt/nas-minecraft}"
 DEST="${DEST:-$DEST_MOUNT/world}"
 REQUIRE_MOUNT="${REQUIRE_MOUNT:-1}"
+MARKER_FILE="${MARKER_FILE:-$DEST_MOUNT/.sbackups-target}"
 STAGE_DIR="${STAGE_DIR:-/var/tmp}"
 RCON_HOST="${RCON_HOST:-127.0.0.1}"
 RCON_PORT="${RCON_PORT:-$(prop rcon.port)}"; RCON_PORT="${RCON_PORT:-25575}"
@@ -42,9 +45,10 @@ die() { echo "world-backup: $*" >&2; exit 1; }
 [[ -d "$MC_DIR/$LEVEL" ]] || die "no world folder $MC_DIR/$LEVEL"
 [[ -n "$RCON_PASSWORD" ]] || die "no RCON password: set enable-rcon=true, rcon.password in server.properties (or RCON_PASSWORD)"
 if [[ "$REQUIRE_MOUNT" == 1 ]]; then
-  mountpoint -q "$DEST_MOUNT" || die "$DEST_MOUNT is not mounted, refusing to write to the local disk"
+  mountpoint -q "$DEST_MOUNT" || die "$DEST_MOUNT is not a mount point, refusing to write to the local disk"
+  [[ -e "$MARKER_FILE" ]] || die "$MARKER_FILE not found: share not mounted (or marker not created), refusing to write"
 fi
-mkdir -p "$DEST"
+mkdir -p "$DEST" 2>/dev/null || die "cannot write to $DEST as $(id -un) (uid $(id -u)): the share is mounted but not writable for this user, see README (LXC: uid mapping / noperm)"
 
 # Minimal RCON client (python3 is part of a default Debian install). Prints the server's reply.
 rcon() {
