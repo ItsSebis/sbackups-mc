@@ -2,6 +2,7 @@
 # Restores a world backup made by world-backup.sh into a plain folder you can copy to any server.
 #
 #   world-restore.sh                       list the snapshots
+#   world-restore.sh --json                the snapshots as restic's JSON (used by the web interface)
 #   world-restore.sh <target-dir> [id]     restore snapshot <id> (default: latest); the world folder (and
 #                                          plugins/SBackups) appear directly inside <target-dir>
 #
@@ -17,6 +18,10 @@ STAGE_DIR="${STAGE_DIR:-/var/tmp/sbackups-stage}"
 export RESTIC_REPOSITORY="${REPO:-${RESTIC_REPOSITORY:-$DEST_MOUNT/restic-world}}"
 export RESTIC_PASSWORD_FILE="${RESTIC_PASSWORD_FILE:-/etc/sbackups/restic-password}"
 
+if [[ "${1:-}" == --json ]]; then
+  restic snapshots --tag world --json
+  exit 0
+fi
 if [[ $# -eq 0 ]]; then
   restic snapshots --tag world
   exit 0

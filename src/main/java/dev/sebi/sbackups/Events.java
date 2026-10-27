@@ -38,10 +38,13 @@ final class Events {
         clients.add(ex);
     }
 
-    /** @param type "backup" (a backup was added/removed) or "players" (online state / pending restore changed) */
+    /**
+     * @param type "backup" (a backup was added/removed), "players" (online state / pending restore changed) or
+     *             "world" (world backup job started/finished, uuid is null)
+     */
     void publish(String type, UUID uuid) {
         if (clients.isEmpty()) return;
-        String json = "{\"type\":\"" + type + "\",\"uuid\":\"" + uuid + "\"}";
+        String json = "{\"type\":\"" + type + "\"" + (uuid == null ? "" : ",\"uuid\":\"" + uuid + "\"") + "}";
         try {
             writer.execute(() -> send("data: " + json + "\n\n"));
         } catch (java.util.concurrent.RejectedExecutionException ignored) {

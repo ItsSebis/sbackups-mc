@@ -18,6 +18,7 @@
 #   MARKER_FILE   file that exists on the NAS share only   (default $DEST_MOUNT/.sbackups-target; create it once
 #                 with `touch` while the share is mounted)
 #   RCON_HOST / RCON_PORT / RCON_PASSWORD   default 127.0.0.1 / rcon.port / rcon.password from server.properties
+#   LOCK_FILE     held while a backup runs, so the timer and the web UI can never overlap   (default $STAGE_DIR.lock)
 #   KEEP_HOURLY / KEEP_DAILY / KEEP_WEEKLY / KEEP_MONTHLY   snapshots to keep   (default 48 / 14 / 8 / 6)
 set -euo pipefail
 
@@ -46,6 +47,10 @@ export RESTIC_PASSWORD_FILE="${RESTIC_PASSWORD_FILE:-/etc/sbackups/restic-passwo
 HOST_TAG="minecraft" # fixed, so snapshots stay one series even if the machine is renamed
 
 die() { echo "world-backup: $*" >&2; exit 1; }
+
+LOCK_FILE="${LOCK_FILE:-$STAGE_DIR.lock}"
+exec 9>"$LOCK_FILE" || die "cannot create the lock file $LOCK_FILE"
+flock -n 9 || die "another world backup is already running"
 
 [[ -d "$MC_DIR/$LEVEL" ]] || die "no world folder $MC_DIR/$LEVEL"
 [[ -n "$RCON_PASSWORD" ]] || die "no RCON password: set enable-rcon=true, rcon.password in server.properties (or RCON_PASSWORD)"

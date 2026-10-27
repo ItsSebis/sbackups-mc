@@ -13,7 +13,7 @@ class RetentionTest {
 
     private static Settings settings(int routine, int ageDays, int death, int manual) {
         Sections s = new Sections(true, true, true, false, false);
-        return new Settings(15, true, true, true, true, routine, ageDays, death, manual, 0, s, false, "", 0, "");
+        return new Settings(15, true, true, true, true, routine, ageDays, death, manual, 0, s, false, "", 0, "", false, "", "", "");
     }
 
     private static Meta meta(long time, Reason r) {

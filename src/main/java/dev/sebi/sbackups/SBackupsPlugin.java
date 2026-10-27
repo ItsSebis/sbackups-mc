@@ -17,6 +17,7 @@ public final class SBackupsPlugin extends JavaPlugin {
     private ExecutorService io;
     private BackupService service;
     private WebServer web;
+    private WorldBackups world;
     private static final int PER_TICK = 2;
 
     private BukkitTask periodic;
@@ -31,6 +32,8 @@ public final class SBackupsPlugin extends JavaPlugin {
         io = Executors.newSingleThreadExecutor(r -> new Thread(r, "SBackups-io"));
         service = new BackupService(this, new BackupStore(getDataFolder().toPath().resolve("data"), getLogger()),
                 io, Settings.from(getConfig()));
+
+        world = new WorldBackups(service::settings, service.events(), getLogger());
 
         getServer().getPluginManager().registerEvents(new BackupListener(service), this);
         var command = new BackupCommand(this, service);
@@ -49,7 +52,7 @@ public final class SBackupsPlugin extends JavaPlugin {
         }
         if (s.webEnabled()) {
             try {
-                web = new WebServer(service, s);
+                web = new WebServer(service, world, s);
                 getLogger().info("Admin web interface on http://" + s.webBind() + ":" + web.port());
             } catch (IOException e) {
                 getLogger().severe("Could not start the web interface: " + e.getMessage());
@@ -122,6 +125,7 @@ public final class SBackupsPlugin extends JavaPlugin {
         if (service.settings().onQuit()) {
             for (Player p : getServer().getOnlinePlayers()) service.snapshotMain(p, Reason.QUIT);
         }
+        world.stop();
         service.shutdownEvents();
         io.shutdown(); // flushes queued backups, e.g. the quit backups taken while the server stops
         try {

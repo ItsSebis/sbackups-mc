@@ -76,6 +76,14 @@
            padding: 9px 16px; border-radius: 8px; display: none; z-index: 20; }
   #toast.bad { border-color: var(--bad); } #toast.ok { border-color: var(--ok); }
   .empty { color: var(--dim); padding: 30px 0; }
+  #world { display: none; grid-column: 1 / -1; overflow: auto; padding: 18px 22px; min-height: 0; }
+  #app.world > .col, #app.world > #detail { display: none; }
+  #app.world > #world { display: block; }
+  #world .snap { display: flex; gap: 10px; align-items: center; padding: 8px 0; border-top: 1px solid var(--line); }
+  #world .snap .when { margin-right: auto; }
+  #world pre { background: var(--panel2); border: 1px solid var(--line); border-radius: 6px; padding: 10px; overflow: auto;
+               max-height: 260px; font-size: 12px; white-space: pre-wrap; }
+  #world .ok { color: var(--ok); } #world .bad { color: var(--bad); }
   @media (max-width: 900px) { #app.on { grid-template-columns: 1fr; height: auto; } .col { max-height: 40vh; } }
 </style>
 </head>
@@ -90,7 +98,8 @@
 
 <div id="app">
   <div class="col">
-    <h2>Players <span id="live" class="tag" title="Live updates">offline</span></h2>
+    <h2>Players <span id="live" class="tag" title="Live updates">offline</span>
+      <button id="worldBtn" style="display:none;float:right;padding:1px 8px;font-size:11px">World</button></h2>
     <div class="search"><input type="text" id="q" placeholder="Search players"></div>
     <div id="players"></div>
   </div>
@@ -99,6 +108,7 @@
     <div id="backups"><div class="empty" style="padding:14px">Select a player.</div></div>
   </div>
   <div id="detail"><div class="empty">Select a backup to see its inventory.</div></div>
+  <div id="world"></div>
 </div>
 
 <dialog id="dlg">
@@ -114,6 +124,13 @@
   <div class="sub" style="margin-top:8px">The current state is saved as a “pre-restore” backup first, so this can be undone.
     Offline players get it applied when they next join.</div>
   <div class="actions"><button id="dlgCancel" type="button">Cancel</button><button id="dlgOk" class="primary" type="button">Restore</button></div>
+</dialog>
+<dialog id="wdlg">
+  <h3 style="margin-top:0">Restore world backup</h3>
+  <div class="sub" id="wdlgInfo"></div>
+  <div class="sub" style="margin-top:8px">The snapshot is restored into a <b>new folder</b> on the server. The running world
+    is not touched; copy the folder over a stopped world by hand if you want to roll back.</div>
+  <div class="actions"><button id="wdlgCancel" type="button">Cancel</button><button id="wdlgOk" class="primary" type="button">Restore to folder</button></div>
 </dialog>
 <div id="tip"></div>
 <div id="toast"></div>
@@ -161,6 +178,7 @@ $('#login').addEventListener('submit', async e => {
 async function start() {
   try { cfg = await api('config'); } catch { return showLogin(); }
   $('#login').style.display = 'none'; $('#app').classList.add('on');
+  $('#worldBtn').style.display = cfg.worldEnabled ? '' : 'none';
   await loadPlayers();
   live();
 }
@@ -176,7 +194,11 @@ function live() {
     tag.textContent = 'reconnecting'; tag.style.color = 'var(--warn)';
     if (es.readyState === EventSource.CLOSED) api('config').catch(() => {}); // closed for good = 401 -> login screen
   };
-  es.onmessage = e => { const m = JSON.parse(e.data); queue(m.uuid, true); };
+  es.onmessage = e => {
+    const m = JSON.parse(e.data);
+    if (m.type === 'world') { if ($('#app').classList.contains('world')) loadWorld(true); return; }
+    queue(m.uuid, true);
+  };
 }
 function queue(uuid, playersToo) {
   if (uuid) dirty.add(uuid);
@@ -371,6 +393,57 @@ async function cancelPending() {
   try { await api(`players/${player.uuid}/pending`, 'DELETE'); await loadPlayers();
         player = players.find(p => p.uuid === player.uuid) || player; renderDetail(); } catch (e) { fail(e); }
 }
+
+// --- world backups ---
+let wsnaps = null, wstatus = { running: null, last: null }, wsnapErr = '', wtimer;
+$('#worldBtn').addEventListener('click', () => { $('#app').classList.add('world'); loadWorld(false); });
+const ago = ms => { const s = Math.round((Date.now() - ms) / 1000); return s < 90 ? s + ' s' : s < 5400 ? Math.round(s / 60) + ' min' : Math.round(s / 3600) + ' h'; };
+
+async function loadWorld(statusOnly) {
+  try {
+    wstatus = await api('world/status');
+    if (!statusOnly || !wsnaps) {
+      try { wsnaps = await api('world/snapshots'); wsnapErr = ''; } catch (e) { wsnaps = wsnaps || []; wsnapErr = e.message; }
+    } else if (!wstatus.running && wstatus.last) { // a job just ended: the list changed
+      try { wsnaps = await api('world/snapshots'); wsnapErr = ''; } catch (e) { wsnapErr = e.message; }
+    }
+  } catch (e) { return fail(e); }
+  renderWorld();
+  clearTimeout(wtimer);
+  if (wstatus.running) wtimer = setTimeout(() => loadWorld(true), 1000); // elapsed time
+}
+function renderWorld() {
+  const run = wstatus.running, last = wstatus.last;
+  const box = $('#world');
+  box.replaceChildren(
+    h('div', { class: 'bar' }, h('h1', {}, 'World backups'),
+      h('button', { onclick: () => $('#app').classList.remove('world') }, '← Players'),
+      h('button', { class: 'primary', disabled: run ? '' : null, onclick: worldBackup }, 'Back up now')),
+    run ? h('div', { class: 'banner' }, `${run.kind === 'backup' ? 'Backup' : 'Restore'} running for ${ago(run.started)}…`) : null,
+    last ? h('div', { style: 'margin-bottom:14px' },
+      h('div', {}, h('b', { class: last.ok ? 'ok' : 'bad' }, last.ok ? 'Last job succeeded' : 'Last job failed'),
+        ` · ${last.kind} · ${when(last.ended)}`),
+      last.kind === 'restore' && last.ok ? h('div', {}, 'Restored to ', h('code', {}, last.detail)) : null,
+      last.output ? h('pre', {}, last.output) : null) : null,
+    h('h2', { class: 'label' }, 'Snapshots'),
+    wsnapErr ? h('div', { class: 'banner', style: 'border-color:var(--bad);color:var(--bad)' }, wsnapErr) : null,
+    ...(wsnaps && wsnaps.length ? wsnaps.map(sn => h('div', { class: 'snap' },
+      h('span', { class: 'when' }, when(sn.time), ' ', h('span', { class: 'sub' }, sn.shortId)),
+      h('button', { disabled: run ? '' : null, onclick: () => worldRestore(sn) }, 'Restore…')))
+      : [h('div', { class: 'empty' }, wsnaps ? 'No snapshots yet.' : 'Loading…')]));
+}
+async function worldBackup() {
+  try { await api('world/backup', 'POST', {}); toast('Backup started'); await loadWorld(true); } catch (e) { fail(e); }
+}
+function worldRestore(sn) {
+  $('#wdlgInfo').textContent = `Snapshot ${sn.shortId} from ${when(sn.time)}`;
+  $('#wdlgOk').onclick = async () => {
+    $('#wdlg').close();
+    try { const r = await api('world/restore', 'POST', { id: sn.id }); toast('Restoring to ' + r.target); await loadWorld(true); } catch (e) { fail(e); }
+  };
+  $('#wdlg').showModal();
+}
+$('#wdlgCancel').addEventListener('click', () => $('#wdlg').close());
 
 start();
 </script>

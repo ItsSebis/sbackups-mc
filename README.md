@@ -99,3 +99,11 @@ rename the folder) and start it. Restoring only reads the repository, so it is s
 restore on top of a live world. Without these scripts: `restic -r /mnt/nas-minecraft/restic-world
 --password-file /etc/sbackups/restic-password restore latest:/var/tmp/sbackups-stage --target /srv/restored`.
 A backup on a NAS in the same house is still not off-site.
+
+### From the web interface
+Set `world.enabled: true` in `config.yml` (and `/sbackup reload` or restart); the scripts must be installed as above and
+runnable by the server user. A **World** button appears above the player list: it shows the snapshots, has **Back up
+now** and **Restore…** per snapshot, and the output of the last job. One job runs at a time, and the backup script holds a
+lock, so a click can never overlap the timer. A restore goes into a new folder `world.restore-dir/<time>-<snapshot>`
+(default `/srv/restored`) and never touches the live world; to roll back, stop the server and copy that folder over the
+world by hand.

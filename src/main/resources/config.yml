@@ -33,3 +33,12 @@ web:
   port: 8124
   # Generated automatically on first start. Needed to log in to the web interface.
   token: ""
+
+# World backups in the web interface (the scripts in scripts/ do the work, see README "World backups").
+# The server user must be able to run both commands and read the restic password file.
+world:
+  enabled: false
+  backup-command: /usr/local/bin/sbackups-world-backup
+  restore-command: /usr/local/bin/sbackups-world-restore
+  # Restores always go into a new subfolder here, never onto the live world.
+  restore-dir: /srv/restored

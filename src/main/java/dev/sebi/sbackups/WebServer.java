@@ -29,6 +29,7 @@ final class WebServer {
     private static final int MAX_BODY = 64 * 1024;
 
     private final BackupService service;
+    private final WorldBackups world;
     private final byte[] token;
     private final HttpServer server;
     private final Gson gson = new GsonBuilder().disableHtmlEscaping().create();
@@ -40,6 +41,8 @@ final class WebServer {
 
     private record GiveReq(String section, int index) {}
 
+    private record WorldRestoreReq(String id) {}
+
     private static final class HttpError extends RuntimeException {
         final int status;
 
@@ -49,8 +52,9 @@ final class WebServer {
         }
     }
 
-    WebServer(BackupService service, Settings s) throws IOException {
+    WebServer(BackupService service, WorldBackups world, Settings s) throws IOException {
         this.service = service;
+        this.world = world;
         this.token = s.webToken().getBytes(StandardCharsets.UTF_8);
         try (InputStream in = WebServer.class.getResourceAsStream("/web/index.html")) {
             page = in.readAllBytes();
@@ -114,8 +118,9 @@ final class WebServer {
     private Object route(HttpExchange ex, String method, String[] seg) throws Exception {
         if (seg.length == 1 && seg[0].equals("config") && method.equals("GET")) {
             Settings s = service.settings();
-            return Map.of("restoreDefaults", s.restoreDefaults());
+            return Map.of("restoreDefaults", s.restoreDefaults(), "worldEnabled", s.worldEnabled());
         }
+        if (seg[0].equals("world")) return worldRoute(ex, method, seg);
         if (seg.length == 1 && seg[0].equals("players") && method.equals("GET")) return players();
         if (seg.length < 3 || !seg[0].equals("players")) throw new HttpError(404, "Not found");
 
@@ -189,6 +194,35 @@ final class WebServer {
             return Map.of("given", true);
         }
         throw new HttpError(404, "Not found");
+    }
+
+    private Object worldRoute(HttpExchange ex, String method, String[] seg) throws Exception {
+        if (!service.settings().worldEnabled()) throw new HttpError(404, "World backups are disabled (world.enabled)");
+        if (seg.length != 2) throw new HttpError(404, "Not found");
+        switch (method + " " + seg[1]) {
+            case "GET status" -> {
+                return world.status();
+            }
+            case "GET snapshots" -> {
+                try {
+                    return world.snapshots();
+                } catch (IOException e) {
+                    throw new HttpError(502, e.getMessage());
+                }
+            }
+            case "POST backup" -> {
+                if (!world.startBackup()) throw new HttpError(409, "A world backup or restore is already running");
+                return Map.of("started", true);
+            }
+            case "POST restore" -> {
+                String id = body(ex, WorldRestoreReq.class).id();
+                if (id == null || !WorldBackups.SNAPSHOT.matcher(id).matches()) throw new HttpError(400, "Bad snapshot id");
+                var target = world.startRestore(id);
+                if (target == null) throw new HttpError(409, "A world backup or restore is already running");
+                return Map.of("started", true, "target", target.toString());
+            }
+            default -> throw new HttpError(404, "Not found");
+        }
     }
 
     private Player online(UUID uuid) {
