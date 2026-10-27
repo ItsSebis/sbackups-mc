@@ -118,7 +118,8 @@ final class WebServer {
     private Object route(HttpExchange ex, String method, String[] seg) throws Exception {
         if (seg.length == 1 && seg[0].equals("config") && method.equals("GET")) {
             Settings s = service.settings();
-            return Map.of("restoreDefaults", s.restoreDefaults(), "worldEnabled", s.worldEnabled());
+            return Map.of("restoreDefaults", s.restoreDefaults(), "worldEnabled", s.worldEnabled(),
+                    "maxTotalBytes", s.maxTotalBytes());
         }
         if (seg[0].equals("world")) return worldRoute(ex, method, seg);
         if (seg.length == 1 && seg[0].equals("players") && method.equals("GET")) return players();
@@ -253,6 +254,7 @@ final class WebServer {
             m.put("name", k.name());
             m.put("online", k.online());
             m.put("count", backups.size());
+            m.put("size", backups.stream().mapToLong(Meta::size).sum());
             m.put("latest", backups.isEmpty() ? 0 : backups.get(0).time());
             m.put("pending", service.store().hasPending(k.uuid()));
             out.add(m);

@@ -70,8 +70,9 @@ final class ItemJson {
             }
         }
         // Everything else on the item (custom data, attributes, container contents, ...) is kept by the
-        // serialization; list the component names so the admin can see that there is more data.
-        List<String> extra = i.getDataTypes().stream().map(t -> t.getKey().getKey())
+        // serialization; list the component names so the admin can see that there is more data. Only components
+        // set on this stack count: the item type's built-in defaults (attack_animation, break_sound, ...) are noise.
+        List<String> extra = i.getDataTypes().stream().filter(i::isDataOverridden).map(t -> t.getKey().getKey())
                 .filter(k -> !HANDLED.contains(k)).sorted().toList();
         if (!extra.isEmpty()) m.put("components", extra);
         return m;

@@ -76,6 +76,9 @@
            padding: 9px 16px; border-radius: 8px; display: none; z-index: 20; }
   #toast.bad { border-color: var(--bad); } #toast.ok { border-color: var(--ok); }
   .empty { color: var(--dim); padding: 30px 0; }
+  .chg { display: flex; gap: 10px; align-items: center; padding: 5px 0; border-top: 1px solid var(--line); }
+  .chg .d { min-width: 44px; font-weight: 700; text-align: right; } .chg .d.p { color: var(--ok); } .chg .d.m { color: var(--bad); }
+  .chg img { width: 24px; height: 24px; image-rendering: pixelated; object-fit: cover; object-position: top; }
   #world { display: none; grid-column: 1 / -1; overflow: auto; padding: 18px 22px; min-height: 0; }
   #app.world > .col, #app.world > #detail { display: none; }
   #app.world > #world { display: block; }
@@ -101,6 +104,7 @@
     <h2>Players <span id="live" class="tag" title="Live updates">offline</span>
       <button id="worldBtn" style="display:none;float:right;padding:1px 8px;font-size:11px">World</button></h2>
     <div class="search"><input type="text" id="q" placeholder="Search players"></div>
+    <div id="total" class="sub" style="padding:0 14px 8px"></div>
     <div id="players"></div>
   </div>
   <div class="col">
@@ -139,7 +143,7 @@
 const $ = s => document.querySelector(s);
 const ARMOR_LABELS = ['Boots', 'Leggings', 'Chestplate', 'Helmet'];
 let cfg = {}, players = [], player = null, backups = [], backup = null, data = null, current = null;
-let tab = 'inv', compare = false;
+let tab = 'inv', compare = false, prev = null;
 
 function h(tag, attrs, ...kids) {
   const el = document.createElement(tag);
@@ -228,6 +232,7 @@ async function refresh() {
 }
 
 const when = t => new Date(t).toLocaleString();
+const bytes = n => n < 1024 ? n + ' B' : n < 1048576 ? (n / 1024).toFixed(1) + ' KB' : (n / 1048576).toFixed(1) + ' MB';
 async function loadPlayers() {
   players = await api('players');
   players.sort((a, b) => b.online - a.online || a.name.localeCompare(b.name)); // stable order while live
@@ -235,10 +240,12 @@ async function loadPlayers() {
 }
 function renderPlayers() {
   const q = $('#q').value.toLowerCase();
+  const total = players.reduce((n, p) => n + p.size, 0), cap = cfg.maxTotalBytes;
+  $('#total').textContent = `Total ${bytes(total)}` + (cap ? ` of ${bytes(cap)} (${Math.round(total / cap * 100)}%)` : '');
   $('#players').replaceChildren(...players.filter(p => p.name.toLowerCase().includes(q)).map(p =>
     h('div', { class: 'row' + (player && player.uuid === p.uuid ? ' sel' : ''), onclick: () => pickPlayer(p) },
       h('div', { class: 't' }, h('span', {}, h('span', { class: 'dot' + (p.online ? ' on' : '') }), p.name),
-        h('span', { class: 'sub' }, p.count + '')),
+        h('span', { class: 'sub' }, `${p.count} · ${bytes(p.size)}`)),
       h('div', { class: 'sub' }, p.latest ? when(p.latest) : 'no backups' + (p.pending ? ' · restore pending' : '')))));
 }
 $('#q').addEventListener('input', renderPlayers);
@@ -257,7 +264,7 @@ async function loadBackups() {
   box.replaceChildren(manual, ...(backups.length ? backups.map(b =>
     h('div', { class: 'row' + (backup && backup.id === b.id ? ' sel' : ''), onclick: () => pickBackup(b) },
       h('div', { class: 't' }, h('span', {}, when(b.time)), h('span', { class: 'tag ' + b.reason }, b.reason)),
-      h('div', { class: 'sub' }, `${b.itemCount} items · ${b.world} ${Math.round(b.x)}, ${Math.round(b.y)}, ${Math.round(b.z)}`)))
+      h('div', { class: 'sub' }, `${b.itemCount} items · ${bytes(b.size)} · ${b.world} ${Math.round(b.x)}, ${Math.round(b.y)}, ${Math.round(b.z)}`)))
     : [h('div', { class: 'empty', style: 'padding:14px' }, 'No backups yet.')]));
 }
 async function manualBackup() {
@@ -266,7 +273,7 @@ async function manualBackup() {
 }
 
 async function pickBackup(b) {
-  backup = b; tab = 'inv'; compare = false; current = null;
+  backup = b; tab = 'inv'; compare = false; current = null; prev = null;
   try { data = await api(`players/${player.uuid}/backups/${b.id}`); } catch (e) { return fail(e); }
   await loadBackups(); renderDetail();
 }
@@ -343,6 +350,7 @@ function renderDetail() {
   for (let i = 0; i < 27; i++) ender.append(mk('ender', d.ender, i, c && c.ender[i]));
 
   const m = d.meta;
+  const enderCount = d.ender.filter(Boolean).length;
   $('#detail').replaceChildren(...[
     h('div', { class: 'bar' }, h('h1', {}, `${player.name} · ${when(m.time)}`),
       h('label', { class: 'sub', style: 'display:flex;gap:6px;align-items:center' },
@@ -354,16 +362,58 @@ function renderDetail() {
       h('button', { onclick: cancelPending }, 'Cancel it')) : null,
     h('div', { class: 'tabs' },
       h('button', { class: tab === 'inv' ? 'on' : '', onclick: () => { tab = 'inv'; renderDetail(); } }, 'Inventory'),
-      h('button', { class: tab === 'ender' ? 'on' : '', onclick: () => { tab = 'ender'; renderDetail(); } }, 'Ender chest')),
-    tab === 'inv'
+      h('button', { class: tab === 'ender' ? 'on' : '', onclick: () => { tab = 'ender'; renderDetail(); } }, 'Ender chest'),
+      h('button', { class: tab === 'changes' ? 'on' : '', onclick: () => { tab = 'changes'; renderDetail(); } }, 'Changes')),
+    tab === 'changes' ? changesView() : tab === 'inv'
       ? h('div', { class: 'inv' },
           h('div', {}, h('p', { class: 'label' }, 'Armor'), armor),
           h('div', {}, h('p', { class: 'label' }, 'Offhand'), h('div', { class: 'col1' }, mk('offhand', d.offhand, 0, c && c.offhand[0]))),
           h('div', {}, h('p', { class: 'label' }, 'Inventory'), mainGrid))
       : h('div', {}, h('p', { class: 'label' }, 'Ender chest'), ender),
-    h('p', { class: 'meta' }, `XP level ${d.xpLevel} · ${m.itemCount} items · ${m.world} (${Math.round(m.x)}, ${Math.round(m.y)}, ${Math.round(m.z)}) · ${m.id}` +
+    h('p', { class: 'meta' }, `${m.reason} · XP level ${d.xpLevel} (+${Math.round(d.xpProgress * 100)}%) · ${m.itemCount} items (${enderCount} in ender chest) · ${bytes(m.size)} · ${m.world} (${Math.round(m.x)}, ${Math.round(m.y)}, ${Math.round(m.z)}) · ${m.id}` +
       (c ? ' · amber outline = differs from the player’s current inventory' : ''))
   ].filter(Boolean));
+}
+
+// --- changes since the previous backup of the same player ---
+const itemKey = it => [it.type, it.name, JSON.stringify(it.enchants || {}), JSON.stringify(it.storedEnchants || {}), (it.lore || []).join('|')].join('\u0001');
+function tally(dd) {
+  const t = new Map();
+  for (const [sec, arr] of [['Inventory', [...dd.main, ...dd.armor, ...dd.offhand]], ['Ender chest', dd.ender]]) {
+    for (const it of arr) {
+      if (!it) continue;
+      const k = sec + '\u0001' + itemKey(it), e = t.get(k) || { sec, it, n: 0 };
+      e.n += it.amount; t.set(k, e);
+    }
+  }
+  return t;
+}
+function diffRows(a, b) {
+  const ta = tally(a), tb = tally(b), rows = [];
+  for (const k of new Set([...ta.keys(), ...tb.keys()])) {
+    const e = tb.get(k) || ta.get(k), d = (tb.get(k)?.n || 0) - (ta.get(k)?.n || 0);
+    if (d) rows.push({ sec: e.sec, it: e.it, d });
+  }
+  return rows.sort((x, y) => x.sec.localeCompare(y.sec) || (x.it.name || '').localeCompare(y.it.name || ''));
+}
+function changesView() {
+  const i = backups.findIndex(b => b.id === backup.id), older = backups[i + 1]; // newest first
+  if (!older) return h('div', { class: 'empty' }, 'This is the oldest backup, nothing to compare with.');
+  if (!prev || prev.id !== older.id) {
+    api(`players/${player.uuid}/backups/${older.id}`).then(r => { prev = { id: older.id, data: r }; if (tab === 'changes') renderDetail(); }).catch(fail);
+    return h('div', { class: 'empty' }, 'Loading…');
+  }
+  const rows = diffRows(prev.data, data), xp = data.xpLevel - prev.data.xpLevel;
+  const ench = it => Object.entries({ ...(it.enchants || {}), ...(it.storedEnchants || {}) }).map(([k, v]) => `${pretty(k)} ${v}`).join(', ');
+  return h('div', {},
+    h('p', { class: 'label' }, `Compared with the previous backup (${when(older.time)}, ${older.reason})`),
+    xp ? h('div', { class: 'chg' }, h('span', { class: 'd ' + (xp > 0 ? 'p' : 'm') }, (xp > 0 ? '+' : '−') + Math.abs(xp)), 'XP levels') : null,
+    ...(rows.length ? rows.map(r => {
+      const img = h('img', { src: '/icons/' + r.it.type + '.png', alt: '' }); img.onerror = () => img.style.visibility = 'hidden';
+      return h('div', { class: 'chg' }, h('span', { class: 'd ' + (r.d > 0 ? 'p' : 'm') }, (r.d > 0 ? '+' : '−') + Math.abs(r.d)), img,
+        h('span', {}, r.it.name || pretty(r.it.type), ench(r.it) ? h('span', { class: 'sub' }, ' · ' + ench(r.it)) : null),
+        h('span', { class: 'tag', style: 'margin-left:auto' }, r.sec));
+    }) : [xp ? null : h('div', { class: 'empty' }, 'Identical to the previous backup.')]));
 }
 
 function openRestore() {
