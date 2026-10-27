@@ -32,14 +32,21 @@ items needs the player online. The page updates live (server-sent events, no pol
 
 ## World backups
 Deliberately not part of the plugin: `scripts/world-backup.sh` runs from a systemd timer, talks to the server over
-RCON (`save-off`, `save-all flush`, then `save-on` again, also on errors), archives the world plus `plugins/SBackups`
-to a local staging dir, and only then copies the `.tar.zst` to the share. Writes are therefore only paused while
-`tar` runs, not during the slow network copy. Retention: every archive for 2 days, then the 04:xx one of each day for
-14 days. It refuses to run when the share is not mounted, so a dropped NAS can never fill the local disk.
+RCON (`save-off`, `save-all flush`, then `save-on` again, also on errors), copies the world (plus `plugins/SBackups`)
+with `rsync` into a local staging folder, and then backs that up with [restic](https://restic.net) to a repository on
+the share. Writes are only paused during the local `rsync` (seconds), not while data goes to the NAS. restic is
+incremental and deduplicated: unchanged region files cost nothing, so even hundreds of snapshots stay close to the
+size of the world. Default retention: 48 hourly, 14 daily, 8 weekly, 6 monthly snapshots (`KEEP_*`). The 04:xx run
+also verifies the repository (`restic check`, 2% of the data).
+It refuses to run when the share is not mounted (marker file), so a dropped NAS can never fill the local disk.
+
+restic **always encrypts** the repository with the password in `/etc/sbackups/restic-password`. Keep a copy of that
+password somewhere safe (password manager): without it the backups cannot be read. Restoring gives you a plain world
+folder you can copy to any server, see "Restore" below.
 
 Setup (server in `/opt/minecraft`, run as user `minecraft`, NAS share via SMB):
 
-1. `apt install zstd python3` (and `cifs-utils` wherever the share is mounted, see 4).
+1. `apt install restic rsync python3` (and `cifs-utils` wherever the share is mounted, see 4).
 2. `server.properties`: `enable-rcon=true`, a long random `rcon.password`, then restart the server. RCON listens on
    all interfaces by default, so do not forward/open port 25575 in the firewall.
 3. Credentials for the share, readable by root only (`/etc/sbackups/smb-credentials`, mode 600, on the machine that
@@ -70,13 +77,25 @@ Setup (server in `/opt/minecraft`, run as user `minecraft`, NAS share via SMB):
 
      Make sure the share is mounted on the host before the container starts (otherwise the marker check stops the
      backup, which is the intended failure mode).
-5. Inside the container, install and enable:
+5. Inside the container, create the restic password (`install -m 600 -o minecraft -g minecraft /dev/null
+   /etc/sbackups/restic-password && openssl rand -base64 32 > /etc/sbackups/restic-password`), then install and enable:
 
        install -m 755 scripts/world-backup.sh /usr/local/bin/sbackups-world-backup
+       install -m 755 scripts/world-restore.sh /usr/local/bin/sbackups-world-restore
        install -m 644 scripts/systemd/sbackups-world.* /etc/systemd/system/
        systemctl daemon-reload && systemctl enable --now sbackups-world.timer
        systemctl start sbackups-world.service && journalctl -u sbackups-world -e   # first run by hand
 
-Defaults can be overridden in `/etc/sbackups/world-backup.conf` (`MC_DIR`, `DEST_MOUNT`, `STAGE_DIR`, `KEEP_ALL_DAYS`, ...,
-see the header of the script). Restore: `zstd -dc world-<stamp>.tar.zst | tar -x -C /opt/minecraft` with the server
-stopped. A backup on a NAS in the same house is still not off-site.
+Defaults can be overridden in `/etc/sbackups/world-backup.conf` (`MC_DIR`, `DEST_MOUNT`, `STAGE_DIR`, `KEEP_*`, ...,
+see the header of the script). The first run creates the restic repository in `/mnt/nas-minecraft/restic-world`.
+The staging folder (`/var/tmp/sbackups-stage`) needs about the size of the world on the local disk.
+
+### Restore
+    sudo -u minecraft sbackups-world-restore                       # list snapshots
+    sudo -u minecraft sbackups-world-restore /srv/restored latest  # or a snapshot id
+
+`/srv/restored/world` is then an ordinary world folder: copy it to another server (set `level-name` to match, or
+rename the folder) and start it. Restoring only reads the repository, so it is safe while the server runs; do not
+restore on top of a live world. Without these scripts: `restic -r /mnt/nas-minecraft/restic-world
+--password-file /etc/sbackups/restic-password restore latest:/var/tmp/sbackups-stage --target /srv/restored`.
+A backup on a NAS in the same house is still not off-site.
