@@ -80,6 +80,13 @@ final class WorldBackups {
             m.put("id", o.get("id").getAsString());
             m.put("shortId", o.has("short_id") ? o.get("short_id").getAsString() : o.get("id").getAsString().substring(0, 8));
             m.put("time", o.get("time").getAsString());
+            // restic 0.17+ records these per snapshot; older versions leave them out (the UI then shows no sizes)
+            if (o.has("summary") && o.get("summary").isJsonObject()) {
+                var sum = o.getAsJsonObject("summary");
+                if (sum.has("total_bytes_processed")) m.put("total", sum.get("total_bytes_processed").getAsLong());
+                if (sum.has("data_added_packed")) m.put("added", sum.get("data_added_packed").getAsLong());
+                else if (sum.has("data_added")) m.put("added", sum.get("data_added").getAsLong());
+            }
             list.add(m);
         }
         list.sort(Comparator.comparing((Map<String, Object> m) -> (String) m.get("time")).reversed());

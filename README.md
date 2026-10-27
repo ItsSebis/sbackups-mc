@@ -106,4 +106,4 @@ runnable by the server user. A **World** button appears above the player list: i
 now** and **Restore…** per snapshot, and the output of the last job. One job runs at a time, and the backup script holds a
 lock, so a click can never overlap the timer. A restore goes into a new folder `world.restore-dir/<time>-<snapshot>`
 (default `/srv/restored`) and never touches the live world; to roll back, stop the server and copy that folder over the
-world by hand.
+world by hand. Each snapshot shows the size of the world it holds and the new data it added to the repository (`+…`); this needs restic 0.17 or newer, older versions show no sizes.

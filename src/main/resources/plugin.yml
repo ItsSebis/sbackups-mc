@@ -1,5 +1,5 @@
 name: SBackups
-version: '1.2.0'
+version: '1.2.1'
 main: dev.sebi.sbackups.SBackupsPlugin
 api-version: '26.3'
 description: Backs up player inventories (incl. armor, offhand, ender chest) and offers an admin web interface to browse and restore them.

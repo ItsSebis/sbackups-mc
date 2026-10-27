@@ -465,7 +465,7 @@ async function loadWorld(statusOnly) {
 function renderWorld() {
   const run = wstatus.running, last = wstatus.last;
   const box = $('#world');
-  box.replaceChildren(
+  box.replaceChildren(...[
     h('div', { class: 'bar' }, h('h1', {}, 'World backups'),
       h('button', { onclick: () => $('#app').classList.remove('world') }, '← Players'),
       h('button', { class: 'primary', disabled: run ? '' : null, onclick: worldBackup }, 'Back up now')),
@@ -479,8 +479,10 @@ function renderWorld() {
     wsnapErr ? h('div', { class: 'banner', style: 'border-color:var(--bad);color:var(--bad)' }, wsnapErr) : null,
     ...(wsnaps && wsnaps.length ? wsnaps.map(sn => h('div', { class: 'snap' },
       h('span', { class: 'when' }, when(sn.time), ' ', h('span', { class: 'sub' }, sn.shortId)),
+      sn.total != null ? h('span', { class: 'sub', title: 'World size in this snapshot · new data this snapshot added to the repository' },
+        `${bytes(sn.total)} · +${bytes(sn.added || 0)}`) : null,
       h('button', { disabled: run ? '' : null, onclick: () => worldRestore(sn) }, 'Restore…')))
-      : [h('div', { class: 'empty' }, wsnaps ? 'No snapshots yet.' : 'Loading…')]));
+      : [h('div', { class: 'empty' }, wsnaps ? 'No snapshots yet.' : 'Loading…')])].filter(Boolean)); // replaceChildren(null) renders the text "null"
 }
 async function worldBackup() {
   try { await api('world/backup', 'POST', {}); toast('Backup started'); await loadWorld(true); } catch (e) { fail(e); }
